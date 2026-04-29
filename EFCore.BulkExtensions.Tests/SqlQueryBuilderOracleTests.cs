@@ -146,8 +146,12 @@ WHEN NOT MATCHED THEN
     }
 
     [Fact]
-    public void GetDestinationTableName_WithTempTable_UsesTempSchemaAndTempTableName()
+    public void GetDestinationTableName_WithTempTable_ReturnsTableNameOnly()
     {
+        // Staging tables are created in the current session's schema.
+        // OracleBulkCopy's direct-path API resolves unqualified names against the connection's
+        // current schema, so including the schema would cause a double-qualified identifier like
+        // PWRPLANT.PWRPLANT.TABLE triggering ORA-39831.
         var tableInfo = new TableInfo
         {
             Schema = "MYSCHEMA",
@@ -161,7 +165,8 @@ WHEN NOT MATCHED THEN
 
         var result = OracleAdapter.GetDestinationTableName(tableInfo);
 
-        Assert.Equal("MYSCHEMA.BANK_STATEMENTTemp897C91F9", result);
+        Assert.Equal("BANK_STATEMENTTemp897C91F9", result);
+        Assert.DoesNotContain(".", result);
     }
 
     [Fact]

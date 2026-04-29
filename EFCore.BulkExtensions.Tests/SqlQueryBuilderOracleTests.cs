@@ -93,4 +93,111 @@ WHEN NOT MATCHED THEN
 
         Assert.Equal(expected, result);
     }
+
+    [Fact]
+    public void GetDestinationTableName_WithSchemaAndTable_ReturnsQualifiedName()
+    {
+        var tableInfo = new TableInfo
+        {
+            Schema = "MYSCHEMA",
+            TableName = "BANK_STATEMENT",
+            BulkConfig = new BulkConfig(),
+            InsertToTempTable = false,
+        };
+
+        var result = OracleAdapter.GetDestinationTableName(tableInfo);
+
+        Assert.Equal("MYSCHEMA.BANK_STATEMENT", result);
+    }
+
+    [Fact]
+    public void GetDestinationTableName_WithNullSchema_ReturnsTableNameOnly()
+    {
+        var tableInfo = new TableInfo
+        {
+            Schema = null,
+            TableName = "BANK_STATEMENT",
+            BulkConfig = new BulkConfig(),
+            InsertToTempTable = false,
+        };
+
+        var result = OracleAdapter.GetDestinationTableName(tableInfo);
+
+        Assert.Equal("BANK_STATEMENT", result);
+    }
+
+    [Fact]
+    public void GetDestinationTableName_WithEmptySchema_DoesNotProduceLeadingDot()
+    {
+        // Reproduces the bug behind ORA-39831 "Direct path load failed, (.TABLE) is not a table"
+        // which occurred when the Schema was an empty string instead of null.
+        var tableInfo = new TableInfo
+        {
+            Schema = string.Empty,
+            TableName = "EXPENDITURE_TYPE",
+            BulkConfig = new BulkConfig(),
+            InsertToTempTable = false,
+        };
+
+        var result = OracleAdapter.GetDestinationTableName(tableInfo);
+
+        Assert.Equal("EXPENDITURE_TYPE", result);
+        Assert.False(result.StartsWith('.'));
+    }
+
+    [Fact]
+    public void GetDestinationTableName_WithTempTable_UsesTempSchemaAndTempTableName()
+    {
+        var tableInfo = new TableInfo
+        {
+            Schema = "MYSCHEMA",
+            TableName = "BANK_STATEMENT",
+            TempSchema = "MYSCHEMA",
+            TempTableName = "BANK_STATEMENTTemp897C91F9",
+            TempTableSufix = "Temp897C91F9",
+            BulkConfig = new BulkConfig(),
+            InsertToTempTable = true,
+        };
+
+        var result = OracleAdapter.GetDestinationTableName(tableInfo);
+
+        Assert.Equal("MYSCHEMA.BANK_STATEMENTTemp897C91F9", result);
+    }
+
+    [Fact]
+    public void GetDestinationTableName_WithEmptyTempSchema_DoesNotProduceLeadingDot()
+    {
+        // Matches the temp-table variant of the leading-dot bug.
+        var tableInfo = new TableInfo
+        {
+            Schema = string.Empty,
+            TableName = "EXPENDITURE_TYPE",
+            TempSchema = string.Empty,
+            TempTableName = "EXPENDITURE_TYPETemp897C91F9",
+            TempTableSufix = "Temp897C91F9",
+            BulkConfig = new BulkConfig(),
+            InsertToTempTable = true,
+        };
+
+        var result = OracleAdapter.GetDestinationTableName(tableInfo);
+
+        Assert.Equal("EXPENDITURE_TYPETemp897C91F9", result);
+        Assert.False(result.StartsWith('.'));
+    }
+
+    [Fact]
+    public void GetDestinationTableName_StripsSquareBracketsFromIdentifiers()
+    {
+        var tableInfo = new TableInfo
+        {
+            Schema = "[MYSCHEMA]",
+            TableName = "[BANK_STATEMENT]",
+            BulkConfig = new BulkConfig(),
+            InsertToTempTable = false,
+        };
+
+        var result = OracleAdapter.GetDestinationTableName(tableInfo);
+
+        Assert.Equal("MYSCHEMA.BANK_STATEMENT", result);
+    }
 }

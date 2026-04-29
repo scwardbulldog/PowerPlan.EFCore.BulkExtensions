@@ -335,14 +335,32 @@ public class OracleAdapter : ISqlOperationsAdapter
     /// <param name="tableInfo"></param>
     private static void SetOracleBulkCopyConfig(OracleBulkCopy OracleBulkCopy, TableInfo tableInfo)
     {
-        string destinationTable = tableInfo.InsertToTempTable ? tableInfo.FullTempTableName
-                                                              : tableInfo.FullTableName;
-        destinationTable = destinationTable.Replace("[", "")
-                                           .Replace("]", "");
-        OracleBulkCopy.DestinationTableName = destinationTable;
+        OracleBulkCopy.DestinationTableName = GetDestinationTableName(tableInfo);
 
         OracleBulkCopy.NotifyAfter = tableInfo.BulkConfig.NotifyAfter ?? tableInfo.BulkConfig.BatchSize;
         OracleBulkCopy.BulkCopyTimeout = tableInfo.BulkConfig.BulkCopyTimeout ?? OracleBulkCopy.BulkCopyTimeout;
+    }
+
+    /// <summary>
+    /// Builds the destination table name for <see cref="OracleBulkCopy.DestinationTableName"/>.
+    /// Schema and table name are taken directly from <see cref="TableInfo"/> (rather than the
+    /// bracketed <c>FullTableName</c>/<c>FullTempTableName</c> strings) so that an empty-string
+    /// schema does not produce a malformed name with a leading dot like <c>.TABLE</c>, which
+    /// causes Oracle errors such as <c>ORA-39831: Direct path load failed, (.TABLE) is not a table</c>.
+    /// When no schema is supplied, only the table name is returned and Oracle will resolve it
+    /// against the connection's default schema.
+    /// </summary>
+    internal static string GetDestinationTableName(TableInfo tableInfo)
+    {
+        string? schema = tableInfo.InsertToTempTable ? tableInfo.TempSchema : tableInfo.Schema;
+        string? tableName = tableInfo.InsertToTempTable ? tableInfo.TempTableName : tableInfo.TableName;
+
+        // Defensively strip any square brackets that may have leaked in from EF/SQL Server-style
+        // identifiers, since Oracle does not use them as quoting characters.
+        schema = schema?.Replace("[", "").Replace("]", "").Trim();
+        tableName = (tableName ?? string.Empty).Replace("[", "").Replace("]", "").Trim();
+
+        return string.IsNullOrEmpty(schema) ? tableName : $"{schema}.{tableName}";
     }
 
     #endregion

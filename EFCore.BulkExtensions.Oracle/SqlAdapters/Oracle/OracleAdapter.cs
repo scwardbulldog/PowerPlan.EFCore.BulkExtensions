@@ -335,14 +335,58 @@ public class OracleAdapter : ISqlOperationsAdapter
     /// <param name="tableInfo"></param>
     private static void SetOracleBulkCopyConfig(OracleBulkCopy OracleBulkCopy, TableInfo tableInfo)
     {
-        string destinationTable = tableInfo.InsertToTempTable ? tableInfo.FullTempTableName
-                                                              : tableInfo.FullTableName;
-        destinationTable = destinationTable.Replace("[", "")
-                                           .Replace("]", "");
-        OracleBulkCopy.DestinationTableName = destinationTable;
+        OracleBulkCopy.DestinationTableName = GetDestinationTableName(tableInfo);
 
         OracleBulkCopy.NotifyAfter = tableInfo.BulkConfig.NotifyAfter ?? tableInfo.BulkConfig.BatchSize;
         OracleBulkCopy.BulkCopyTimeout = tableInfo.BulkConfig.BulkCopyTimeout ?? OracleBulkCopy.BulkCopyTimeout;
+    }
+
+    /// <summary>
+    /// Builds the destination table name for <see cref="OracleBulkCopy.DestinationTableName"/>.
+    /// <para>
+    /// When <see cref="TableInfo.InsertToTempTable"/> is <c>true</c>, the staging table was just
+    /// created by the library in the current session's schema via <c>CREATE TABLE</c>, so we return
+    /// only the table name without a schema prefix. <see cref="OracleBulkCopy"/>'s direct-path API
+    /// resolves unqualified names against the connection's current schema, which matches where the
+    /// staging table lives. Including the schema would cause the direct-path API to produce a
+    /// double-qualified identifier like <c>SCHEMA.SCHEMA.TABLE</c>, triggering
+    /// <c>ORA-39831: Direct path load failed, (SCHEMA.SCHEMA.TABLE) is not a table</c>.
+    /// </para>
+    /// <para>
+    /// For non-temp tables (direct bulk inserts), the schema is included when available so that
+    /// cross-schema inserts work correctly.
+    /// </para>
+    /// <para>
+    /// In all cases, square brackets from EF/SQL-Server-style identifiers are stripped, and an
+    /// empty-string schema is treated as absent to avoid a leading-dot malformed identifier like
+    /// <c>.TABLE</c> (which causes <c>ORA-39831</c>).
+    /// </para>
+    /// </summary>
+    internal static string GetDestinationTableName(TableInfo tableInfo)
+    {
+        string? schema;
+        string? tableName;
+
+        if (tableInfo.InsertToTempTable)
+        {
+            // Staging tables are created in the current session's schema.
+            // OracleBulkCopy resolves unqualified names against the connection's current schema,
+            // so we intentionally omit the schema to avoid double-qualification (ORA-39831).
+            schema = null;
+            tableName = tableInfo.TempTableName;
+        }
+        else
+        {
+            schema = tableInfo.Schema;
+            tableName = tableInfo.TableName;
+        }
+
+        // Defensively strip any square brackets that may have leaked in from EF/SQL Server-style
+        // identifiers, since Oracle does not use them as quoting characters.
+        schema = schema?.Replace("[", "").Replace("]", "").Trim();
+        tableName = (tableName ?? string.Empty).Replace("[", "").Replace("]", "").Trim();
+
+        return string.IsNullOrEmpty(schema) ? tableName : $"{schema}.{tableName}";
     }
 
     #endregion
